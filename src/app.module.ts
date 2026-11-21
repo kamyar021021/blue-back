@@ -9,28 +9,42 @@ import { UserModule } from './user/user.module';
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
-      // روی Render فایل .env وجود نداره؛ مشکلی نیست، از env خود Render میخونه
-      envFilePath: ['.env'],
     }),
 
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const rawUrl = config.getOrThrow<string>('DATABASE_URL');
+        const rawUrl = config.get<string>('DATABASE_URL');
 
-        // Neon: پارامترهای sslmode و channel_binding رو حذف میکنیم
-        // و SSL رو خودمون صریح ست میکنیم تا pg هیچوقت گیر نده
-        const url = rawUrl.split('?')[0];
+        // 🔍 لاگ تشخیصی — بعد از رفع مشکل حذف کن
+        console.log('🔍 DATABASE_URL detected:', rawUrl ? 'YES' : 'NO');
+        console.log('🔍 DB_HOST env:', config.get('DB_HOST'));
+
+        if (!rawUrl) {
+          throw new Error('❌ DATABASE_URL is not set on Render Environment!');
+        }
+
+        let parsed: URL;
+        try {
+          parsed = new URL(rawUrl);
+        } catch {
+          throw new Error(`❌ DATABASE_URL is malformed: ${rawUrl}`);
+        }
+
+        console.log('🔍 Connecting to DB host:', parsed.hostname);
+
+        // 🔒 اگه هاست base بود، صریحاً جلوش رو بگیر
+        if (parsed.hostname === 'base') {
+          throw new Error('❌ DATABASE_URL points to host "base" — fix it on Render!');
+        }
 
         return {
           type: 'postgres' as const,
-          url,
-          ssl: { rejectUnauthorized: false }, // Neon فقط با SSL وصل میشه
+          url: rawUrl.split('?')[0],
+          ssl: { rejectUnauthorized: false },
           autoLoadEntities: true,
-          synchronize: true, // فقط برای اولین دیپلوی تا جدولها ساخته بشن
+          synchronize: true,
           logging: false,
-          retryAttempts: 5,
-          retryDelay: 3000,
         };
       },
     }),
